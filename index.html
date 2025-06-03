@@ -1,0 +1,190 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Трейлеры фильмов</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: #1a1a1a;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+    .navbar {
+      background: #0d0d0d;
+      padding: 15px;
+    }
+    .search-bar {
+      margin: 20px auto;
+      max-width: 600px;
+    }
+    .movie-card {
+      background: #2c2c2c;
+      border-radius: 10px;
+      padding: 15px;
+      margin: 10px;
+      transition: transform 0.3s;
+    }
+    .movie-card:hover {
+      transform: scale(1.05);
+    }
+    .movie-poster {
+      width: 100%;
+      border-radius: 8px;
+    }
+    .genre-filter {
+      margin: 10px 0;
+    }
+    .favorites-btn {
+      cursor: pointer;
+      color: #ffcc00;
+    }
+    #favorites-list {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg">
+    <div class="container">
+      <a class="navbar-brand text-white" href="#">Трейлеры фильмов</a>
+      <div class="collapse navbar-collapse">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item">
+            <a class="nav-link text-white" href="#favorites-list">Избранное</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container">
+    <input type="text" class="form-control search-bar" id="search" placeholder="Найти фильм...">
+    <div class="genre-filter">
+      <select id="genre" class="form-select">
+        <option value="">Все жанры</option>
+        <option value="28">Экшен</option>
+        <option value="12">Приключения</option>
+        <option value="35">Комедия</option>
+        <option value="18">Драма</option>
+        <option value="27">Хоррор</option>
+        <option value="878">Фантастика</option>
+      </select>
+    </div>
+    <div class="row" id="movie-list"></div>
+    <h3 id="favorites-list">Избранное</h3>
+    <div class="row" id="favorites"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const tmdbApiKey = '2fdd7c84382ea684654bae7f548cca02';
+    const youtubeApiKey = 'AIzaSyC3-ncAU6A-2KrP6oovq8vIciAgVF3ZC_w';
+    const movieList = document.getElementById('movie-list');
+    const searchInput = document.getElementById('search');
+    const genreSelect = document.getElementById('genre');
+    const favoritesList = document.getElementById('favorites');
+
+    async function fetchMovies(query = '', genre = '') {
+      let url = `https://api.themoviedb.org/3/discover/movie?api_key=${tmdbApiKey}&language=ru-RU&sort_by=popularity.desc`;
+      if (query) url = `https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&language=ru-RU&query=${query}`;
+      if (genre) url += `&with_genres=${genre}`;
+      
+      const tmdbRes = await fetch(url);
+      const movies = await tmdbRes.json();
+      movieList.innerHTML = '';
+      
+      for (let movie of movies.results) {
+        const youtubeRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${movie.title}+trailer&key=${youtubeApiKey}`);
+        const youtubeData = await youtubeRes.json();
+        const videoId = youtubeData.items[0]?.id.videoId;
+        if (videoId) {
+          movieList.innerHTML += `
+            <div class="col-md-4 movie-card">
+              <img src="https://image.tmdb.org/t/p/w500${movie.poster_path}" class="movie-poster" alt="${movie.title}">
+              <h3>${movie.title}</h3>
+              <p>${movie.overview.slice(0, 100)}...</p>
+              <iframe width="100%" height="200" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allowfullscreen></iframe>
+              <span class="favorites-btn" onclick="addToFavorites('${movie.title}', '${movie.poster_path}', '${videoId}')">★ Добавить в избранное</span>
+            </div>`;
+        }
+      }
+    }
+
+    function addToFavorites(title, poster, videoId) {
+      let favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+      if (!favorites.find(f => f.title === title)) {
+        favorites.push({ title, poster, videoId });
+        localStorage.setItem('favorites', JSON.stringify(favorites));
+        renderFavorites();
+      }
+    }
+
+    function renderFavorites() {
+      let favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+      favoritesList.innerHTML = favorites.length ? '<h3>Избранное</h3>' : '';
+      favorites.forEach(f => {
+        favoritesList.innerHTML += `
+          <div class="col-md-4 movie-card">
+            <img src="https://image.tmdb.org/t/p/w500${f.poster}" class="movie-poster" alt="${f.title}">
+            <h3>${f.title}</h3>
+            <iframe width="100%" height="200" src="https://www.youtube.com/embed/${f.videoId}" frameborder="0" allowfullscreen></iframe>
+            <span class="favorites-btn" onclick="removeFromFavorites('${f.title}')">★ Удалить</span>
+          </div>`;
+      });
+    }
+
+    function removeFromFavorites(title) {
+      let favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+      favorites = favorites.filter(f => f.title !== title);
+      localStorage.setItem('favorites', JSON.stringify(favorites));
+      renderFavorites();
+    }
+
+    searchInput.addEventListener('input', () => fetchMovies(searchInput.value, genreSelect.value));
+    genreSelect.addEventListener('change', () => fetchMovies(searchInput.value, genreSelect.value));
+    fetchMovies();
+    renderFavorites();
+  </script>
+</body>
+</html>
